@@ -3,6 +3,9 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './BookingModal.css';
 
+/* ✅ PRODUCTION-SAFE API BASE */
+const API = import.meta.env.VITE_API_URL;
+
 export default function BookingModal({
   isOpen,
   onClose,
@@ -35,19 +38,26 @@ export default function BookingModal({
     }
   }, [isOpen]);
 
+  /* ✅ AVAILABILITY CHECK (FIXED URL) */
   useEffect(() => {
     if (!tourId || !date) return;
 
     const fetchAvailability = async () => {
       setChecking(true);
       setError(null);
+
       try {
         const day = date.toISOString().slice(0, 10);
         const res = await fetch(
-          `/api/bookings/availability/${tourId}?date=${day}&capacity=${totalCapacity}`
+          `${API}/api/bookings/availability/${tourId}?date=${day}&capacity=${totalCapacity}`
         );
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Availability check failed');
+        }
+
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Availability check failed');
         setBookedCount(json.bookedCount || 0);
       } catch (e) {
         setError(e.message);
@@ -59,64 +69,28 @@ export default function BookingModal({
     fetchAvailability();
   }, [date, tourId, totalCapacity]);
 
+  /* ✅ BOOKING SUBMIT (FIXED URL) */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
-    /* ---------- FIELD VALIDATION (NO GENERIC ERROR) ---------- */
+    /* -------- VALIDATION -------- */
+    if (!name.trim()) return fail('Please enter your full name');
+    if (!email.trim()) return fail('Please enter your email address');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Invalid email');
+    if (!phone.trim()) return fail('Please enter your phone number');
+    if (!date) return fail('Please select a travel date');
+    if (persons < 1) return fail('At least 1 person required');
+    if (availableSpots <= 0) return fail('No spots available');
+    if (persons > availableSpots)
+      return fail(`Only ${availableSpots} spot(s) available`);
 
-    if (!name.trim()) {
-      setError('Please enter your full name');
+    function fail(msg) {
+      setError(msg);
       setSubmitting(false);
       return;
     }
-
-    if (!email.trim()) {
-      setError('Please enter your email address');
-      setSubmitting(false);
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Please enter a valid email address');
-      setSubmitting(false);
-      return;
-    }
-
-    if (!phone.trim()) {
-      setError('Please enter your phone number');
-      setSubmitting(false);
-      return;
-    }
-
-    if (!date || isNaN(new Date(date).getTime())) {
-      setError('Please select a valid travel date');
-      setSubmitting(false);
-      return;
-    }
-
-    if (persons < 1) {
-      setError('Number of people must be at least 1');
-      setSubmitting(false);
-      return;
-    }
-
-    /* ---------- AVAILABILITY VALIDATION ---------- */
-
-    if (availableSpots <= 0) {
-      setError('No spots available for the selected date');
-      setSubmitting(false);
-      return;
-    }
-
-    if (persons > availableSpots) {
-      setError(`Only ${availableSpots} spot(s) available on this date`);
-      setSubmitting(false);
-      return;
-    }
-
-    /* ---------- SUBMIT ---------- */
 
     try {
       const payload = {
@@ -134,15 +108,18 @@ export default function BookingModal({
       const headers = { 'Content-Type': 'application/json' };
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-      const res = await fetch('/api/bookings/create', {
+      const res = await fetch(`${API}/api/bookings/create`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Booking failed');
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Booking failed');
+      }
 
+      const json = await res.json();
       onBooked?.(json.booking);
       alert('Booking successful!');
       onClose();
@@ -164,89 +141,42 @@ export default function BookingModal({
         <p className="tour-name">{tourName}</p>
 
         <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Travel Date</label>
-            <DatePicker
-              selected={date}
-              onChange={setDate}
-              minDate={new Date()}
-              dateFormat="yyyy-MM-dd"
-              className="form-control"
-              placeholderText="Select date"
-            />
-            {checking && <small>Checking availability...</small>}
-            {date && !checking && (
-              <small style={{ color: availableSpots > 0 ? 'green' : 'red' }}>
-                {availableSpots > 0
-                  ? `${availableSpots}/${totalCapacity} spots available`
-                  : 'No spots available'}
-              </small>
-            )}
-          </div>
+          <label>Travel Date</label>
+          <DatePicker
+            selected={date}
+            onChange={setDate}
+            minDate={new Date()}
+            dateFormat="yyyy-MM-dd"
+            className="form-control"
+          />
 
-          <div className="form-group">
-            <label>Full Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} />
-          </div>
+          <input placeholder="Full Name" value={name} onChange={e => setName(e.target.value)} />
+          <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
+          <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
 
-          <div className="form-row">
-            <div className="form-group">
-              <label>Email</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} />
-            </div>
+          <input
+            type="number"
+            min={1}
+            value={persons}
+            onChange={e => setPersons(Number(e.target.value))}
+          />
 
-            <div className="form-group">
-              <label>Phone</label>
-              <input value={phone} onChange={e => setPhone(e.target.value)} />
-            </div>
-          </div>
+          <select value={accommodationType} onChange={e => setAccommodationType(e.target.value)}>
+            <option>Standard</option>
+            <option>Deluxe</option>
+            <option>Premium</option>
+          </select>
 
-          <div className="form-row">
-            <div className="form-group">
-              <label>People</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={persons}
-                onChange={e => setPersons(Number(e.target.value))}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Accommodation</label>
-              <select
-                value={accommodationType}
-                onChange={e => setAccommodationType(e.target.value)}
-              >
-                <option>Standard</option>
-                <option>Deluxe</option>
-                <option>Premium</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Other Requirements</label>
-            <textarea
-              value={otherRequirements}
-              onChange={e => setOtherRequirements(e.target.value)}
-              maxLength={500}
-            />
-          </div>
+          <textarea
+            placeholder="Other Requirements"
+            value={otherRequirements}
+            onChange={e => setOtherRequirements(e.target.value)}
+          />
 
           {error && <div className="error-message">{error}</div>}
 
-          <button
-            className="submit-btn"
-            type="submit"
-            disabled={submitting || availableSpots <= 0 || persons > availableSpots}
-          >
-            {submitting
-              ? 'Booking...'
-              : availableSpots <= 0
-              ? 'Sold Out'
-              : 'Book Now'}
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Booking...' : 'Book Now'}
           </button>
         </form>
       </div>
