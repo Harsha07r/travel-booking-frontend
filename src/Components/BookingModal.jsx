@@ -3,15 +3,15 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './BookingModal.css';
 
-/* ✅ PRODUCTION-SAFE API BASE */
-const API = import.meta.env.VITE_API_URL;
+/* Safe API Base */
+const API_BASE = import.meta.env.VITE_API_URL || "";
+const API = API_BASE.replace(/\/$/, '');
 
 export default function BookingModal({
   isOpen,
   onClose,
   tourId,
   tourName,
-  authToken,
   onBooked,
   capacity = 3
 }) {
@@ -20,25 +20,31 @@ export default function BookingModal({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [persons, setPersons] = useState(1);
-  const [accommodationType, setAccommodationType] = useState('Standard');
+  const [accommodationType, setAccommodationType] = useState('');
   const [otherRequirements, setOtherRequirements] = useState('');
   const [bookedCount, setBookedCount] = useState(0);
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const totalCapacity = capacity;
-  const availableSpots = totalCapacity - bookedCount;
+  const availableSpots = capacity - bookedCount;
 
+  /* Reset when modal closes */
   useEffect(() => {
     if (!isOpen) {
       setDate(null);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setPersons(1);
+      setAccommodationType('');
+      setOtherRequirements('');
       setBookedCount(0);
       setError(null);
     }
   }, [isOpen]);
 
-  /* ✅ AVAILABILITY CHECK (FIXED URL) */
+  /* Availability Check */
   useEffect(() => {
     if (!tourId || !date) return;
 
@@ -49,42 +55,39 @@ export default function BookingModal({
       try {
         const day = date.toISOString().slice(0, 10);
         const res = await fetch(
-          `${API}/api/bookings/availability/${tourId}?date=${day}&capacity=${totalCapacity}`
+          `${API}/api/bookings/availability/${encodeURIComponent(tourId)}?date=${day}`
         );
+        const json = await res.json();
 
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || 'Availability check failed');
+        if (!json.success) throw new Error(json.message);
+
+        setBookedCount(json.bookedCount || 0);
+
+        // Auto adjust persons if exceeding availability
+        if (persons > capacity - json.bookedCount) {
+          setPersons(capacity - json.bookedCount);
         }
 
-        const json = await res.json();
-        setBookedCount(json.bookedCount || 0);
       } catch (e) {
-        setError(e.message);
+        setError("Availability check failed");
       } finally {
         setChecking(false);
       }
     };
 
     fetchAvailability();
-  }, [date, tourId, totalCapacity]);
+  }, [date, tourId]);
 
-  /* ✅ BOOKING SUBMIT (FIXED URL) */
+  /* Submit Booking */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
-    /* -------- VALIDATION -------- */
-    if (!name.trim()) return fail('Please enter your full name');
-    if (!email.trim()) return fail('Please enter your email address');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Invalid email');
-    if (!phone.trim()) return fail('Please enter your phone number');
-    if (!date) return fail('Please select a travel date');
-    if (persons < 1) return fail('At least 1 person required');
-    if (availableSpots <= 0) return fail('No spots available');
-    if (persons > availableSpots)
-      return fail(`Only ${availableSpots} spot(s) available`);
+    // Extra validation safety
+    if (!tourId) return fail("Tour ID missing. Refresh page.");
+    if (!date) return fail("Please select a travel date.");
+    if (!/^[0-9]{7,15}$/.test(phone)) return fail("Enter valid phone number.");
 
     function fail(msg) {
       setError(msg);
@@ -92,39 +95,34 @@ export default function BookingModal({
       return;
     }
 
+    const payload = {
+      tourId,
+      tourName,
+      fullName: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      travelDate: date.toISOString().slice(0, 10),
+      numberOfPeople: persons,
+      accommodationType,
+      otherRequirements: otherRequirements.trim()
+    };
+
     try {
-      const payload = {
-        tourId,
-        tourName,
-        fullName: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
-        travelDate: date.toISOString().slice(0, 10),
-        numberOfPeople: persons,
-        accommodationType,
-        otherRequirements: otherRequirements.trim()
-      };
-
-      const headers = { 'Content-Type': 'application/json' };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-
       const res = await fetch(`${API}/api/bookings/create`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Booking failed');
-      }
-
       const json = await res.json();
+
+      if (!json.success) return fail(json.message);
+
+      alert("Booking Successful!");
       onBooked?.(json.booking);
-      alert('Booking successful!');
       onClose();
-    } catch (e) {
-      setError(e.message);
+    } catch {
+      setError("Booking failed. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -147,36 +145,51 @@ export default function BookingModal({
             onChange={setDate}
             minDate={new Date()}
             dateFormat="yyyy-MM-dd"
-            className="form-control"
+            required
           />
 
-          <input placeholder="Full Name" value={name} onChange={e => setName(e.target.value)} />
-          <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
-          <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
+          {date && !checking && (
+            <p style={{ textAlign: "center", fontWeight: "600" }}>
+              Available Spots: {availableSpots > 0 ? availableSpots : "Full"}
+            </p>
+          )}
+
+          <input placeholder="Full Name" value={name} onChange={e => setName(e.target.value)} required />
+
+          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
+
+          <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} required />
 
           <input
             type="number"
-            min={1}
+            min="1"
+            max={availableSpots}
             value={persons}
             onChange={e => setPersons(Number(e.target.value))}
+            required
           />
 
-          <select value={accommodationType} onChange={e => setAccommodationType(e.target.value)}>
+          <select value={accommodationType} onChange={e => setAccommodationType(e.target.value)} required>
+            <option value="">Select Accommodation</option>
             <option>Standard</option>
             <option>Deluxe</option>
             <option>Premium</option>
           </select>
 
           <textarea
-            placeholder="Other Requirements"
+            placeholder="Other Requirements (Optional)"
             value={otherRequirements}
             onChange={e => setOtherRequirements(e.target.value)}
           />
 
+          {checking && <p style={{ textAlign: "center" }}>Checking availability...</p>}
           {error && <div className="error-message">{error}</div>}
 
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Booking...' : 'Book Now'}
+          <button
+            type="submit"
+            disabled={submitting || checking || availableSpots <= 0}
+          >
+            {submitting ? 'Booking...' : availableSpots <= 0 ? 'Fully Booked' : 'Book Now'}
           </button>
         </form>
       </div>

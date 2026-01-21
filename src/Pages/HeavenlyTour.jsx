@@ -3,6 +3,7 @@ import { Container, Button } from 'react-bootstrap';
 import Contactform from '../Components/Sections/Contactform';
 import BookingModal from '../Components/BookingModal';
 import '../Styles/TourDetails.css';
+import tourIds from '../tourIds';
 
 const heavenlyTour = {
   image: '/images/kashmir.webp',
@@ -116,7 +117,7 @@ const HeavenlyTour = () => {
       <BookingModal
         isOpen={showBookingModal}
         onClose={() => setShowBookingModal(false)}
-        tourId={heavenlyTour.title}
+        tourId={tourIds[heavenlyTour.title]} // Updated to use MongoDB _id
         tourName={heavenlyTour.title}
         onBooked={handleBookingSuccess}
       />

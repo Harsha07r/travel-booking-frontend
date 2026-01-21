@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Container, Button } from 'react-bootstrap';
 import Contactform from '../Components/Sections/Contactform';
 import BookingModal from '../Components/BookingModal';
+import tourIds from '../tourIds';
 import '../Styles/TourDetails.css';
 
 const honeymoonTour = {
@@ -116,7 +117,7 @@ const HoneymoonTour = () => {
       <BookingModal
         isOpen={showBookingModal}
         onClose={() => setShowBookingModal(false)}
-        tourId={honeymoonTour.title}
+        tourId={tourIds[honeymoonTour.title]} // Updated to use MongoDB _id
         tourName={honeymoonTour.title}
         onBooked={handleBookingSuccess}
       />
